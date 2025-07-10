@@ -101,6 +101,31 @@ export async function POST(request: Request) {
 
     console.log('Email sent successfully:', emailResult.id);
 
+    // Log the email send event (optional)
+    try {
+      // Import Supabase client
+      const { createClient } = await import('@supabase/supabase-js');
+      
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://pofgpoktfwwrpkgzwuwa.supabase.co';
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBvZmdwb2t0Znd3cnBrZ3p3dXdhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk3NDI0OTgsImV4cCI6MjA2NTMxODQ5OH0.Exfvy_9M-h5W-4QEKZvS3m4ikrbPG3ms-NtAQQbSDs4';
+      
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+      await supabase
+        .from('email_logs')
+        .insert({
+          quote_id: quote.id,
+          recipient_email: quote.clients.email,
+          email_type: 'quote',
+          resend_id: emailResult.id,
+          sent_at: new Date().toISOString(),
+          status: 'sent'
+        });
+    } catch (logError) {
+      console.warn('Failed to log email send event:', logError);
+      // Don't fail the request if logging fails
+    }
+
     return new Response(
       JSON.stringify({ 
         success: true, 

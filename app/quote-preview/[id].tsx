@@ -282,7 +282,7 @@ export default function QuotePreview() {
 
       console.log('Sending quote data to API...');
 
-      const response = await fetch('/send-quote', {
+      const response = await fetch('/send-quote+api', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

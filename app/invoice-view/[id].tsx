@@ -271,7 +271,7 @@ export default function InvoiceView() {
 
       console.log('Sending invoice data to API...');
 
-      const response = await fetch('/send-invoice', {
+      const response = await fetch('/send-invoice+api', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
