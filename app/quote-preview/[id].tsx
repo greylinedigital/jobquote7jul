@@ -19,6 +19,9 @@ import { supabase } from '@/lib/supabase';
 import { Quote, QuoteItem, Client, BusinessProfile, Invoice } from '@/types/database';
 
 type QuoteWithDetails = Quote & {
+import LoadingSpinner from '@/components/LoadingSpinner';
+import Toast from '@/components/Toast';
+import { validateQuote, validateQuoteItem } from '@/lib/validation';
   clients: Client;
   quote_items: QuoteItem[];
   invoices?: Invoice[];
@@ -36,6 +39,9 @@ export default function QuotePreview() {
   const [creatingInvoice, setCreatingInvoice] = useState(false);
   const [scrollY, setScrollY] = useState(0);
   const [resendCount, setResendCount] = useState(0);
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState<'success' | 'error' | 'info'>('success');
 
   // Collapsible sections state
   const [jobDescriptionExpanded, setJobDescriptionExpanded] = useState(true);
@@ -61,21 +67,36 @@ export default function QuotePreview() {
   }, [id]);
 
   const fetchQuote = async () => {
-    const { data, error } = await supabase
-      .from('quotes')
-      .select(`
-        *,
-        clients (*),
-        quote_items (*),
-        invoices (*)
-      `)
-      .eq('id', id)
-      .single();
+    try {
+      console.log('=== FETCHING QUOTE ===');
+      console.log('Quote ID:', id);
+      
+      const { data, error } = await supabase
+        .from('quotes')
+        .select(`
+          *,
+          clients (*),
+          quote_items (*),
+          invoices (*)
+        `)
+        .eq('id', id)
+        .single();
 
-    if (error) {
-      Alert.alert('Error', 'Failed to load quote');
-      router.back();
-    } else {
+      if (error) {
+        console.error('Error fetching quote:', error);
+        showErrorToast('Failed to load quote. Please try again.');
+        router.back();
+        return;
+      }
+      
+      if (!data) {
+        console.error('Quote not found');
+        showErrorToast('Quote not found');
+        router.back();
+        return;
+      }
+      
+      console.log('Quote loaded successfully:', data.job_title);
       setQuote(data);
       setEditJobTitle(data.job_title || '');
       setEditDescription(data.description || '');
@@ -86,22 +107,40 @@ export default function QuotePreview() {
       if (data.status?.toLowerCase() === 'sent' || data.status?.toLowerCase() === 'approved') {
         setResendCount(1); // Assume it's been sent once if status is 'sent'
       }
+    } catch (error) {
+      console.error('Unexpected error fetching quote:', error);
+      showErrorToast('An unexpected error occurred. Please try again.');
+      router.back();
     }
     setLoading(false);
   };
 
   const fetchBusinessProfile = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    try {
+      console.log('Fetching business profile for quote preview...');
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.log('No authenticated user found');
+        return;
+      }
 
-    const { data, error } = await supabase
-      .from('business_profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
+      const { data, error } = await supabase
+        .from('business_profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
 
-    if (!error && data) {
-      setBusinessProfile(data);
+      if (!error && data) {
+        console.log('Business profile loaded for quote preview');
+        setBusinessProfile(data);
+      } else if (error && error.code !== 'PGRST116') {
+        console.error('Error fetching business profile:', error);
+        // Don't show error as business profile is optional
+      }
+    } catch (error) {
+      console.error('Unexpected error fetching business profile:', error);
+      // Don't show error as business profile is optional
     }
   };
 
@@ -156,7 +195,37 @@ export default function QuotePreview() {
   const saveChanges = async () => {
     if (!quote) return;
 
+    // Validate quote data
+    const validation = validateQuote({
+      job_title: editJobTitle,
+      description: editDescription,
+      client_id: quote.client_id,
+      items: editItems,
+    });
+    
+    if (!validation.isValid) {
+      showErrorToast(validation.errors[0]);
+      return;
+    }
+    
+    // Validate each item
+    for (const item of editItems) {
+      const itemValidation = validateQuoteItem({
+        name: item.name,
+        quantity: item.quantity || item.qty || 1,
+        unit_price: item.unit_price || item.cost || 0,
+        type: item.type,
+      });
+      
+      if (!itemValidation.isValid) {
+        showErrorToast(`Item "${item.name}": ${itemValidation.errors[0]}`);
+        return;
+      }
+    }
+
     try {
+      console.log('=== SAVING QUOTE CHANGES ===');
+      
       // Calculate totals
       const subtotal = editItems.reduce((sum, item) => 
         sum + ((item.unit_price || item.cost || 0) * (item.quantity || item.qty || 1)), 0
@@ -208,17 +277,19 @@ export default function QuotePreview() {
       // Refresh quote data
       await fetchQuote();
       setIsEditing(false);
-      Alert.alert('Success', 'Quote updated successfully');
+      showSuccessToast('Quote updated successfully');
     } catch (error) {
       console.error('Error saving changes:', error);
-      Alert.alert('Error', 'Failed to save changes');
+      showErrorToast('Failed to save changes. Please try again.');
     }
   };
 
   const createInvoice = async () => {
     if (!quote) return;
 
+    console.log('=== CREATING INVOICE ===');
     setCreatingInvoice(true);
+    
     try {
       // Generate invoice number
       const invoiceNumber = `INV-${Date.now().toString().slice(-6)}`;
@@ -247,12 +318,13 @@ export default function QuotePreview() {
 
       if (error) throw error;
 
+      console.log('Invoice created successfully:', data.id);
       // Navigate to invoice view
       router.push(`/invoice-view/${data.id}`);
 
     } catch (error) {
       console.error('Error creating invoice:', error);
-      Alert.alert('Error', 'Failed to create invoice. Please try again.');
+      showErrorToast('Failed to create invoice. Please try again.');
     } finally {
       setCreatingInvoice(false);
     }
@@ -339,7 +411,7 @@ export default function QuotePreview() {
 
       Alert.alert(
         'Success! 🎉', 
-        `Quote sent successfully${resendText} to ${quote.clients.email}!\n\nThe client will receive a professional email with the quote details.${downpaymentText}`,
+        `Quote sent successfully${resendText} to ${quote.clients.email}!\n\nThe client will receive a professional email with the quote details.${downpaymentText}${result.debug?.emailId ? `\n\nEmail ID: ${result.debug.emailId}` : ''}`,
         [
           {
             text: 'OK',
@@ -354,21 +426,7 @@ export default function QuotePreview() {
       console.error('=== ERROR SENDING QUOTE ===');
       console.error('Error details:', error);
       
-      let errorMessage = 'Failed to send quote. Please try again.';
-      
-      if (error instanceof Error) {
-        if (error.message.includes('RESEND_API_KEY')) {
-          errorMessage = 'Email service not configured. Please contact support.';
-        } else if (error.message.includes('domain')) {
-          errorMessage = 'Email domain not verified. Please contact support.';
-        } else if (error.message.includes('network') || error.message.includes('fetch')) {
-          errorMessage = 'Network error. Please check your internet connection and try again.';
-        } else {
-          errorMessage = `Error: ${error.message}`;
-        }
-      }
-      
-      Alert.alert('Email Error', errorMessage);
+      showErrorToast('Failed to send quote. Please try again.');
     } finally {
       setSending(false);
     }
@@ -445,15 +503,31 @@ export default function QuotePreview() {
 
   const hasInvoice = quote?.invoices && quote.invoices.length > 0;
   const showFloatingButton = !isEditing && !isFinalized && scrollY < 100;
+    showSuccessToast('Welcome to Premium! You now have unlimited quotes.');
   const canResend = isFinalized && resendCount < 2; // Allow one resend
+  
+  const showSuccessToast = (message: string) => {
+    setToastMessage(message);
+    setToastType('success');
+    setShowToast(true);
+  };
+  
+  const showErrorToast = (message: string) => {
+    setToastMessage(message);
+    setToastType('error');
+    setShowToast(true);
+  };
+  
+  const showInfoToast = (message: string) => {
+    setToastMessage(message);
+    setToastType('info');
+    setShowToast(true);
+  };
 
   if (loading || !quote) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#F6A623" />
-          <Text style={styles.loadingText}>Loading quote...</Text>
-        </View>
+        <LoadingSpinner message="Loading quote..." />
       </SafeAreaView>
     );
   }
@@ -976,6 +1050,22 @@ export default function QuotePreview() {
           </View>
         </SafeAreaView>
       </Modal>
+      
+      {/* Loading Overlay */}
+      {(sending || creatingInvoice) && (
+        <LoadingSpinner 
+          overlay={true} 
+          message={sending ? 'Sending quote...' : 'Creating invoice...'} 
+        />
+      )}
+      
+      {/* Toast Notifications */}
+      <Toast
+        visible={showToast}
+        message={toastMessage}
+        type={toastType}
+        onHide={() => setShowToast(false)}
+      />
     </SafeAreaView>
   );
 }

@@ -13,6 +13,9 @@ import {
 } from 'react-native';
 import { router, Link } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import LoadingSpinner from '@/components/LoadingSpinner';
+import Toast from '@/components/Toast';
+import { validateEmail, validatePassword } from '@/lib/validation';
 
 const LOGO_URL = 'https://pofgpoktfwwrpkgzwuwa.supabase.co/storage/v1/object/sign/logoassets/JobQuote-mainlogo.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8yZjIxYTE4My1kNTZmLTRhOTYtOTkxMi0yNGU4NTllYzUxYjciLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJsb2dvYXNzZXRzL0pvYlF1b3RlLW1haW5sb2dvLnBuZyIsImlhdCI6MTc1MDE3MzI5OSwiZXhwIjoxODQ0NzgxMjk5fQ.-iEcQYX1u7yDZjDssRq6szOYc3r8ziTlv2OTidRtQSs';
 
@@ -21,20 +24,26 @@ export default function Register() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState<'success' | 'error' | 'info'>('success');
 
   const handleRegister = async () => {
-    if (!email || !password || !confirmPassword) {
-      Alert.alert('Error', 'Please fill in all fields');
+    // Validate inputs
+    const emailValidation = validateEmail(email);
+    if (!emailValidation.isValid) {
+      showErrorToast(emailValidation.errors[0]);
+      return;
+    }
+
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.isValid) {
+      showErrorToast(passwordValidation.errors[0]);
       return;
     }
 
     if (password !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
-      return;
-    }
-
-    if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
+      showErrorToast('Passwords do not match');
       return;
     }
 
@@ -49,7 +58,7 @@ export default function Register() {
 
     if (error) {
         console.error('Registration error:', error);
-      Alert.alert('Registration Failed', error.message);
+        showErrorToast(error.message || 'Registration failed. Please try again.');
     } else {
         console.log('Registration successful, navigating to tabs');
       // Navigate directly to tabs - business setup will be handled by modal
@@ -57,10 +66,22 @@ export default function Register() {
     }
     } catch (error) {
       console.error('Unexpected registration error:', error);
-      Alert.alert('Registration Failed', 'An unexpected error occurred. Please try again.');
+      showErrorToast('An unexpected error occurred. Please try again.');
     } finally {
     setLoading(false);
     }
+  };
+  
+  const showSuccessToast = (message: string) => {
+    setToastMessage(message);
+    setToastType('success');
+    setShowToast(true);
+  };
+  
+  const showErrorToast = (message: string) => {
+    setToastMessage(message);
+    setToastType('error');
+    setShowToast(true);
   };
 
   return (
@@ -127,6 +148,22 @@ export default function Register() {
           </View>
         </View>
       </ScrollView>
+      
+      {/* Loading Overlay */}
+      {loading && (
+        <LoadingSpinner 
+          overlay={true} 
+          message="Creating account..." 
+        />
+      )}
+      
+      {/* Toast Notifications */}
+      <Toast
+        visible={showToast}
+        message={toastMessage}
+        type={toastType}
+        onHide={() => setShowToast(false)}
+      />
     </KeyboardAvoidingView>
   );
 }

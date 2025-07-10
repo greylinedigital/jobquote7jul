@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 import { supabase } from '@/lib/supabase';
 import { router } from 'expo-router';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import 'react-native-url-polyfill/auto';
 
 export default function RootLayout() {
@@ -29,7 +30,7 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <>
+    <ErrorBoundary>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -42,6 +43,6 @@ export default function RootLayout() {
         <Stack.Screen name="+not-found" />
       </Stack>
       <StatusBar style="auto" />
-    </>
+    </ErrorBoundary>
   );
 }

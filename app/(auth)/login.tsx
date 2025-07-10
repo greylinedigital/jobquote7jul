@@ -17,6 +17,9 @@ import { router, Link } from 'expo-router';
 import { X, Mail, Clock } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 
+import LoadingSpinner from '@/components/LoadingSpinner';
+import Toast from '@/components/Toast';
+import { validateEmail, validatePassword } from '@/lib/validation';
 const LOGO_URL = 'https://pofgpoktfwwrpkgzwuwa.supabase.co/storage/v1/object/sign/logoassets/JobQuote-mainlogo.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8yZjIxYTE4My1kNTZmLTRhOTYtOTkxMi0yNGU4NTllYzUxYjciLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJsb2dvYXNzZXRzL0pvYlF1b3RlLW1haW5sb2dvLnBuZyIsImlhdCI6MTc1MDE3MzI5OSwiZXhwIjoxODQ0NzgxMjk5fQ.-iEcQYX1u7yDZjDssRq6szOYc3r8ziTlv2OTidRtQSs';
 
 export default function Login() {
@@ -31,10 +34,21 @@ export default function Login() {
   const [resetEmailSent, setResetEmailSent] = useState(false);
   const [rateLimited, setRateLimited] = useState(false);
   const [cooldownTime, setCooldownTime] = useState(0);
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState<'success' | 'error' | 'info'>('success');
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
+    // Validate inputs
+    const emailValidation = validateEmail(email);
+    if (!emailValidation.isValid) {
+      showErrorToast(emailValidation.errors[0]);
+      return;
+    }
+
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.isValid) {
+      showErrorToast(passwordValidation.errors[0]);
       return;
     }
 
@@ -49,29 +63,24 @@ export default function Login() {
 
       if (error) {
         console.error('Login error:', error);
-        Alert.alert('Login Failed', error.message);
+        showErrorToast(error.message || 'Login failed. Please try again.');
       } else {
         console.log('Login successful, navigating to tabs');
         router.replace('/(tabs)');
       }
     } catch (error) {
       console.error('Unexpected login error:', error);
-      Alert.alert('Login Failed', 'An unexpected error occurred. Please try again.');
+      showErrorToast('An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleForgotPassword = async () => {
-    if (!resetEmail.trim()) {
-      Alert.alert('Error', 'Please enter your email address');
-      return;
-    }
-
-    // Basic email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(resetEmail.trim())) {
-      Alert.alert('Error', 'Please enter a valid email address');
+    // Validate email
+    const emailValidation = validateEmail(resetEmail);
+    if (!emailValidation.isValid) {
+      showErrorToast(emailValidation.errors[0]);
       return;
     }
 
@@ -147,6 +156,18 @@ export default function Login() {
   const openForgotPasswordModal = () => {
     setResetEmail(email); // Pre-fill with login email if available
     setForgotPasswordModalVisible(true);
+  };
+  
+  const showSuccessToast = (message: string) => {
+    setToastMessage(message);
+    setToastType('success');
+    setShowToast(true);
+  };
+  
+  const showErrorToast = (message: string) => {
+    setToastMessage(message);
+    setToastType('error');
+    setShowToast(true);
   };
 
   const formatCooldownTime = (seconds: number) => {
@@ -352,6 +373,22 @@ export default function Login() {
           </View>
         </View>
       </Modal>
+      
+      {/* Loading Overlay */}
+      {loading && (
+        <LoadingSpinner 
+          overlay={true} 
+          message="Signing in..." 
+        />
+      )}
+      
+      {/* Toast Notifications */}
+      <Toast
+        visible={showToast}
+        message={toastMessage}
+        type={toastType}
+        onHide={() => setShowToast(false)}
+      />
     </KeyboardAvoidingView>
   );
 }

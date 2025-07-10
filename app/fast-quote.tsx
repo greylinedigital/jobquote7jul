@@ -21,6 +21,9 @@ import { detectJobType, generateTradeSpecificItems, generateProfessionalSummary 
 import { checkQuoteLimit } from '@/lib/subscription';
 import LimitReachedModal from '@/components/LimitReachedModal';
 import SubscriptionModal from '@/components/SubscriptionModal';
+import LoadingSpinner from '@/components/LoadingSpinner';
+import Toast from '@/components/Toast';
+import { validateQuote } from '@/lib/validation';
 import { useSubscription } from '@/hooks/useSubscription';
 
 interface QuoteItem {
@@ -141,6 +144,9 @@ export default function FastQuote() {
   const [tempHourlyRate, setTempHourlyRate] = useState('120');
   const [currentHourlyRate, setCurrentHourlyRate] = useState(120);
   const [savingRate, setSavingRate] = useState(false);
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState<'success' | 'error' | 'info'>('success');
 
   useEffect(() => {
     fetchClients();
@@ -158,61 +164,91 @@ export default function FastQuote() {
   }, [clientId, clients]);
 
   const fetchClients = async () => {
-    const { data, error } = await supabase
-      .from('clients')
-      .select('*')
-      .order('name', { ascending: true });
+    try {
+      console.log('Fetching clients for fast quote...');
+      
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*')
+        .order('name', { ascending: true });
 
-    if (error) {
-      console.error('Error fetching clients:', error);
-    } else {
-      setClients(data || []);
+      if (error) {
+        console.error('Error fetching clients:', error);
+        showErrorToast('Failed to load clients. Please try again.');
+      } else {
+        console.log('Successfully fetched clients:', data?.length || 0);
+        setClients(data || []);
+      }
+    } catch (error) {
+      console.error('Unexpected error fetching clients:', error);
+      showErrorToast('An unexpected error occurred while loading clients.');
     }
   };
 
   const fetchBusinessProfile = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    try {
+      console.log('Fetching business profile...');
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.log('No authenticated user found');
+        return;
+      }
 
-    const { data, error } = await supabase
-      .from('business_profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
+      const { data, error } = await supabase
+        .from('business_profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
 
-    if (!error && data) {
-      setBusinessProfile(data);
-      const rate = data.hourly_rate || 120;
-      setCurrentHourlyRate(rate);
-      setTempHourlyRate(rate.toString());
+      if (!error && data) {
+        console.log('Business profile loaded successfully');
+        setBusinessProfile(data);
+        const rate = data.hourly_rate || 120;
+        setCurrentHourlyRate(rate);
+        setTempHourlyRate(rate.toString());
+      } else if (error && error.code !== 'PGRST116') {
+        console.error('Error fetching business profile:', error);
+        // Don't show error for missing profile as it's optional
+      }
+    } catch (error) {
+      console.error('Unexpected error fetching business profile:', error);
+      // Don't show error as business profile is optional
     }
   };
 
   const checkQuoteLimits = async () => {
-    if (isPremium) {
-      setQuoteLimitInfo({ canCreate: true, remaining: Infinity });
-      return;
-    }
-
     try {
+      if (isPremium) {
+        setQuoteLimitInfo({ canCreate: true, remaining: Infinity });
+        return;
+      }
+
       const limitInfo = await checkQuoteLimit();
+      console.log('Quote limits:', limitInfo);
       setQuoteLimitInfo(limitInfo);
     } catch (error) {
       console.error('Error checking quote limits:', error);
+      // Don't show error as this is not critical
     }
   };
 
   const updateHourlyRate = async () => {
-    const rate = parseFloat(tempHourlyRate);
-    if (isNaN(rate) || rate < 30 || rate > 300) {
-      Alert.alert('Error', 'Please enter a valid hourly rate between $30 and $300');
-      return;
-    }
-
-    setSavingRate(true);
     try {
+      const rate = parseFloat(tempHourlyRate);
+      if (isNaN(rate) || rate < 30 || rate > 300) {
+        showErrorToast('Please enter a valid hourly rate between $30 and $300');
+        return;
+      }
+
+      setSavingRate(true);
+      console.log('Updating hourly rate to:', rate);
+      
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) {
+        showErrorToast('Authentication required. Please log in again.');
+        return;
+      }
 
       const { error } = await supabase
         .from('business_profiles')
@@ -225,10 +261,10 @@ export default function FastQuote() {
       setBusinessProfile(prev => prev ? { ...prev, hourly_rate: rate } : null);
       setHourlyRateModalVisible(false);
       
-      Alert.alert('Success', `Hourly rate updated to $${rate}/hr`);
+      showSuccessToast(`Hourly rate updated to $${rate}/hr`);
     } catch (error) {
       console.error('Error updating hourly rate:', error);
-      Alert.alert('Error', 'Failed to update hourly rate');
+      showErrorToast('Failed to update hourly rate. Please try again.');
     } finally {
       setSavingRate(false);
     }
@@ -375,13 +411,21 @@ export default function FastQuote() {
   };
 
   const generateQuote = async () => {
+    // Validate inputs
+    const validation = validateQuote({
+      job_title: 'Generated Quote', // Will be generated
+      description: jobDescription,
+      client_id: selectedClient?.id,
+      items: [{ name: 'placeholder' }], // Will be generated
+    });
+    
     if (!selectedClient) {
-      Alert.alert('Error', 'Please select a client');
+      showErrorToast('Please select a client');
       return;
     }
 
     if (!jobDescription.trim()) {
-      Alert.alert('Error', 'Please describe the work needed');
+      showErrorToast('Please describe the work needed');
       return;
     }
 
@@ -469,7 +513,7 @@ export default function FastQuote() {
 
     } catch (error) {
       console.error('Error generating quote:', error);
-      Alert.alert('Error', 'Failed to generate quote. Please try again.');
+      showErrorToast('Failed to generate quote. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -483,6 +527,19 @@ export default function FastQuote() {
   const handleSubscriptionSuccess = () => {
     refreshSubscriptionStatus();
     checkQuoteLimits();
+    showSuccessToast('Welcome to Premium! You now have unlimited quotes.');
+  };
+  
+  const showSuccessToast = (message: string) => {
+    setToastMessage(message);
+    setToastType('success');
+    setShowToast(true);
+  };
+  
+  const showErrorToast = (message: string) => {
+    setToastMessage(message);
+    setToastType('error');
+    setShowToast(true);
   };
 
   return (
@@ -733,6 +790,22 @@ export default function FastQuote() {
           </View>
         </SafeAreaView>
       </Modal>
+      
+      {/* Loading Overlay */}
+      {loading && (
+        <LoadingSpinner 
+          overlay={true} 
+          message="Generating your quote..." 
+        />
+      )}
+      
+      {/* Toast Notifications */}
+      <Toast
+        visible={showToast}
+        message={toastMessage}
+        type={toastType}
+        onHide={() => setShowToast(false)}
+      />
     </SafeAreaView>
   );
 }
