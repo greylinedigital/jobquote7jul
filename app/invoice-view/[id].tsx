@@ -296,8 +296,6 @@ export default function InvoiceView() {
 
       console.log('API Response data:', result);
 
-      const result = await response.json();
-
       if (!response.ok) {
         throw new Error(result.error || `HTTP ${response.status}: Failed to send invoice`);
       }
