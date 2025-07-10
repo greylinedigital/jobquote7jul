@@ -6,7 +6,7 @@ import {
   Animated,
   Dimensions,
 } from 'react-native';
-import { CheckCircle, AlertCircle, Info, X } from 'lucide-react-native';
+import { CircleCheck as CheckCircle, CircleAlert as AlertCircle, Info, X } from 'lucide-react-native';
 
 interface ToastProps {
   visible: boolean;
